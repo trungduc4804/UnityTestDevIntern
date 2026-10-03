@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
+using Cinemachine;
 
 public class PlayerController : MonoBehaviour
 {
@@ -11,10 +12,16 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private GameObject kickButton;
     [SerializeField] private LayerMask ballLayer = ~0;
     [SerializeField] private float kickForce = 15f;
+    [SerializeField] private CinemachineVirtualCamera virtualCamera;
+    [SerializeField] private float cameraSmoothSpeed = 8f;
+    [SerializeField] private Transform[] goals;
 
     private Rigidbody rb;
     private Animator animator;
     private Transform nearbyBallTarget;
+    private Vector3 cameraOffset;
+    private Transform cameraTarget;
+    private Coroutine cameraRoutine;
     
     void Start()
     {
@@ -36,9 +43,11 @@ public class PlayerController : MonoBehaviour
         Vector3 moveDir = new Vector3(moveX, 0f, moveZ).normalized;
         if(moveDir != Vector3.zero)
         {
-            animator.SetBool("isRun",true);
-        }else{
-            animator.SetBool("isRun",false);
+            animator.SetBool("isRun", true);
+        }
+        else
+        {
+            animator.SetBool("isRun", false);
         }
         rb.velocity = new Vector3(moveDir.x * moveSpeed, rb.velocity.y, moveDir.z * moveSpeed);
 
@@ -57,8 +66,7 @@ public class PlayerController : MonoBehaviour
 
         foreach (var hit in hits)
         {
-            // Nhận diện qua component Ball, Tag "Ball", hoặc tên GameObject chứa "ball"
-            bool isBall = hit.GetComponent<Ball>() != null;
+            bool isBall = hit.GetComponent<Ball>();
 
             if (isBall)
             {
@@ -84,14 +92,15 @@ public class PlayerController : MonoBehaviour
         }
     }
 
-    [SerializeField] private Transform[] goals;
-
     public void Kick()
     {
         if (nearbyBallTarget == null) return;
 
         Ball ball = nearbyBallTarget.GetComponent<Ball>();
-        if (ball == null) return;
+        if (ball == null)
+        {
+            ball = nearbyBallTarget.gameObject.AddComponent<Ball>();
+        }
 
         // Tìm khung thành gần quả bóng nhất
         Transform nearestGoal = GetNearestGoal(ball.transform.position);
@@ -99,6 +108,9 @@ public class PlayerController : MonoBehaviour
         {
             // Sút bóng bay về khung thành đó
             ball.KickTowards(nearestGoal.position, kickForce);
+
+            // Chuyển Camera bám theo quả bóng
+            SwitchCameraToBall(ball, nearestGoal);
         }
     }
 
@@ -124,45 +136,104 @@ public class PlayerController : MonoBehaviour
 
         if (furthestBall != null)
         {
-            // Tìm khung thành gần quả bóng đó nhất và sút
             Transform nearestGoal = GetNearestGoal(furthestBall.transform.position);
             if (nearestGoal != null)
             {
                 furthestBall.KickTowards(nearestGoal.position, kickForce);
+
+                // Chuyển Camera bám theo quả bóng
+                SwitchCameraToBall(furthestBall, nearestGoal);
             }
         }
     }
 
+    private void SwitchCameraToBall(Ball ball, Transform goal)
+    {
+        if (cameraRoutine != null)
+        {
+            StopCoroutine(cameraRoutine);
+        }
+        cameraRoutine = StartCoroutine(FollowBallRoutine(ball, goal));
+    }
+
+    private IEnumerator FollowBallRoutine(Ball ball, Transform goal)
+    {
+        // 1. Chuyển mục tiêu theo dõi sang quả bóng
+        if (virtualCamera != null)
+        {
+            virtualCamera.Follow = ball.transform;
+        }
+        cameraTarget = ball.transform;
+
+        Rigidbody ballRb = ball.GetComponent<Rigidbody>();
+        float elapsed = 0f;
+        float maxDuration = 4f;
+
+        // Chờ bóng bay tới gần khung thành hoặc dừng lại (tối đa 4s)
+        while (ball != null && elapsed < maxDuration)
+        {
+            elapsed += Time.deltaTime;
+
+            // Sau 0.4s để bóng bay được một đoạn nhất định
+            if (elapsed > 0.4f)
+            {
+                float distToGoal = Vector3.Distance(ball.transform.position, goal.position);
+                bool hasStopped = ballRb != null && ballRb.velocity.magnitude < 0.6f;
+
+                if (distToGoal <= 3.5f || hasStopped)
+                {
+                    break;
+                }
+            }
+
+            yield return null;
+        }
+
+        // 2. Bóng đã tới khung thành -> Đợi đúng 2 giây
+        yield return new WaitForSeconds(2f);
+
+        // 3. Chuyển Camera quay trở lại nhân vật
+        if (virtualCamera != null)
+        {
+            virtualCamera.Follow = transform;
+        }
+        cameraTarget = transform;
+    }
+
     private Transform GetNearestGoal(Vector3 ballPos)
     {
-        // Nếu chưa kéo 2 khung thành vào Inspector, tự tìm qua component Goal
-        if (goals == null || goals.Length == 0)
+        List<Transform> validGoals = new List<Transform>();
+
+        // 1. Kiểm tra mảng goals nếu đã kéo trong Inspector
+        if (goals != null && goals.Length > 0)
         {
-            Goal[] foundGoals = FindObjectsOfType<Goal>();
-            if (foundGoals != null && foundGoals.Length > 0)
+            foreach (var g in goals)
             {
-                goals = new Transform[foundGoals.Length];
-                for (int i = 0; i < foundGoals.Length; i++)
-                {
-                    goals[i] = foundGoals[i].transform;
-                }
+                if (g != null) validGoals.Add(g);
             }
         }
 
-        if (goals == null || goals.Length == 0) return null;
+        // 2. Tìm component Goal trong scene
+        if (validGoals.Count == 0)
+        {
+            Goal[] foundGoals = FindObjectsOfType<Goal>();
+            foreach (var g in foundGoals)
+            {
+                if (g != null) validGoals.Add(g.transform);
+            }
+        }
 
-        // So sánh khoảng cách để lấy khung thành gần nhất
-        Transform nearest = goals[0];
+
+        Transform nearest = validGoals[0];
         float minDistance = Vector3.Distance(ballPos, nearest.position);
 
-        for (int i = 1; i < goals.Length; i++)
+        for (int i = 1; i < validGoals.Count; i++)
         {
-            if (goals[i] == null) continue;
-            float dist = Vector3.Distance(ballPos, goals[i].position);
+            float dist = Vector3.Distance(ballPos, validGoals[i].position);
             if (dist < minDistance)
             {
                 minDistance = dist;
-                nearest = goals[i];
+                nearest = validGoals[i];
             }
         }
 

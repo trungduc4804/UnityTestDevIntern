@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class PlayerController : MonoBehaviour
 {
@@ -10,6 +11,8 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private float kickDistance = 2.5f;
     [SerializeField] private GameObject kickButton;
     [SerializeField] private LayerMask ballLayer = ~0;
+    [Tooltip("Lực sút bóng")]
+    [SerializeField] private float kickForce = 15f;
 
     private Rigidbody rb;
     private Animator animator;
@@ -20,10 +23,17 @@ public class PlayerController : MonoBehaviour
         rb = GetComponent<Rigidbody>();
         animator = GetComponent<Animator>();
 
-        // Đảm bảo ban đầu nút Kick ẩn đi
+        // Đảm bảo ban đầu nút Kick ẩn đi và tự động gán sự kiện click
         if (kickButton != null)
         {
             kickButton.SetActive(false);
+
+            Button btn = kickButton.GetComponent<Button>();
+            if (btn != null)
+            {
+                btn.onClick.RemoveListener(Kick);
+                btn.onClick.AddListener(Kick);
+            }
         }
     }
 
@@ -87,6 +97,60 @@ public class PlayerController : MonoBehaviour
                 kickButton.SetActive(shouldShow);
             }
         }
+    }
+
+    [SerializeField] private Transform[] goals;
+
+    public void Kick()
+    {
+        if (nearbyBallTarget == null) return;
+
+        Ball ball = nearbyBallTarget.GetComponent<Ball>();
+        if (ball == null) return;
+
+        // Tìm khung thành gần quả bóng nhất
+        Transform nearestGoal = GetNearestGoal(ball.transform.position);
+        if (nearestGoal != null)
+        {
+            // Sút bóng bay về khung thành đó
+            ball.KickTowards(nearestGoal.position, kickForce);
+        }
+    }
+
+    private Transform GetNearestGoal(Vector3 ballPos)
+    {
+        // Nếu chưa kéo 2 khung thành vào Inspector, tự tìm qua component Goal
+        if (goals == null || goals.Length == 0)
+        {
+            Goal[] foundGoals = FindObjectsOfType<Goal>();
+            if (foundGoals != null && foundGoals.Length > 0)
+            {
+                goals = new Transform[foundGoals.Length];
+                for (int i = 0; i < foundGoals.Length; i++)
+                {
+                    goals[i] = foundGoals[i].transform;
+                }
+            }
+        }
+
+        if (goals == null || goals.Length == 0) return null;
+
+        // So sánh khoảng cách để lấy khung thành gần nhất
+        Transform nearest = goals[0];
+        float minDistance = Vector3.Distance(ballPos, nearest.position);
+
+        for (int i = 1; i < goals.Length; i++)
+        {
+            if (goals[i] == null) continue;
+            float dist = Vector3.Distance(ballPos, goals[i].position);
+            if (dist < minDistance)
+            {
+                minDistance = dist;
+                nearest = goals[i];
+            }
+        }
+
+        return nearest;
     }
 
     private void OnDrawGizmosSelected()

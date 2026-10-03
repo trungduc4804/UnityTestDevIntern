@@ -7,11 +7,9 @@ public class PlayerController : MonoBehaviour
 {
     [SerializeField] private float moveSpeed = 5f;
     [SerializeField] private float rotateSpeed = 10f;
-    [Header("Kick & Ball Detection")]
     [SerializeField] private float kickDistance = 2.5f;
     [SerializeField] private GameObject kickButton;
     [SerializeField] private LayerMask ballLayer = ~0;
-    [Tooltip("Lực sút bóng")]
     [SerializeField] private float kickForce = 15f;
 
     private Rigidbody rb;
@@ -22,19 +20,6 @@ public class PlayerController : MonoBehaviour
     {
         rb = GetComponent<Rigidbody>();
         animator = GetComponent<Animator>();
-
-        // Đảm bảo ban đầu nút Kick ẩn đi và tự động gán sự kiện click
-        if (kickButton != null)
-        {
-            kickButton.SetActive(false);
-
-            Button btn = kickButton.GetComponent<Button>();
-            if (btn != null)
-            {
-                btn.onClick.RemoveListener(Kick);
-                btn.onClick.AddListener(Kick);
-            }
-        }
     }
 
     void Update()
@@ -114,6 +99,37 @@ public class PlayerController : MonoBehaviour
         {
             // Sút bóng bay về khung thành đó
             ball.KickTowards(nearestGoal.position, kickForce);
+        }
+    }
+
+    public void AutoKick()
+    {
+        Ball[] allBalls = FindObjectsOfType<Ball>();
+        if (allBalls == null || allBalls.Length == 0) return;
+
+        // Tìm quả bóng xa nhân vật nhất
+        Ball furthestBall = allBalls[0];
+        float maxDistance = Vector3.Distance(transform.position, furthestBall.transform.position);
+
+        for (int i = 1; i < allBalls.Length; i++)
+        {
+            if (allBalls[i] == null) continue;
+            float dist = Vector3.Distance(transform.position, allBalls[i].transform.position);
+            if (dist > maxDistance)
+            {
+                maxDistance = dist;
+                furthestBall = allBalls[i];
+            }
+        }
+
+        if (furthestBall != null)
+        {
+            // Tìm khung thành gần quả bóng đó nhất và sút
+            Transform nearestGoal = GetNearestGoal(furthestBall.transform.position);
+            if (nearestGoal != null)
+            {
+                furthestBall.KickTowards(nearestGoal.position, kickForce);
+            }
         }
     }
 

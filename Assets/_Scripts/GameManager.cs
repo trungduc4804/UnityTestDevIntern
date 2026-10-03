@@ -29,4 +29,5 @@ public class GameManager : MonoBehaviour
         Scene currentScene = SceneManager.GetActiveScene();
         SceneManager.LoadScene(currentScene.buildIndex);
     }
+    public void Quit() => Application.Quit();
 }
